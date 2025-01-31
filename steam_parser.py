@@ -1,24 +1,29 @@
 from bs4 import BeautifulSoup
 import requests
 import time
+import json
+from pathlib import Path
 from float_parser import get_swapgg_float
 
 def get_steam_cookies():
-    """Возвращает актуальные куки для Steam Community"""
-    return {
-        "steamCountry": "DE%7Cdf1227bcafad6a1278d31b61162fe5f7",
-        "browserid": "1790214141277757",
-        "sessionid": "97224f28e4c995a116b229c0",
-        "steamDidLoginRefresh": "1738262876",
-        "steamLoginSecure": "76561198894921863%7C%7CeyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAwRF8yNUMzMEI2Ml81QUJDNCIsICJzdWIiOiAiNzY1NjExOTg4OTQ5MjE4NjMiLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3MzgzNTg5MzcsICJuYmYiOiAxNzI5NjMxODA3LCAiaWF0IjogMTczODI3MTgwNywgImp0aSI6ICIwMDBCXzI1QzMwQjc0Xzg1OTExIiwgIm9hdCI6IDE3MzgxNzQzNDIsICJydF9leHAiOiAxNzU2MDEwNzM2LCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMzcuMjE1LjQyLjE1NCIsICJpcF9jb25maXJtZXIiOiAiMzcuMjE1LjQyLjE1NCIgfQ.YGEVXOFcUvD6Jnk0tjOfK86fDA-fHdTTneDwH43xpOdlJk8voDu0VFT-h-PdBUFk8QrhOciUuY29j386bmQaDg",
-        "timezoneOffset": "10800,0",
-        "webTradeEligibility": "%7B%22allowed%22%3A1%2C%22allowed_at_time%22%3A0%2C%22steamguard_required_days%22%3A15%2C%22new_device_cooldown_days%22%3A0%2C%22time_checked%22%3A1738271809%7D"
-    }
+    """Загружает куки из файла или возвращает дефолтные"""
+    cookie_file = Path("cookies.json")
+    cookies = {}
+    
+    try:
+        if cookie_file.exists():
+            with open(cookie_file, 'r') as f:
+                cookies_data = json.load(f)
+                cookies = {c['name']: c['value'] for c in cookies_data}
+        else:
+            print("Отправьте файл куки")
+    except Exception as e:
+        print(f"Ошибка загрузки куки: {e}")
+    
+    return cookies
 
 async def process_market_url(url: str, target_min: float, target_max: float) -> str:
-    """Парсит страницу маркета Steam с использованием куки"""
     try:
-        # Запрос с куками и заголовками
         response = requests.get(
             url,
             cookies=get_steam_cookies(),
@@ -29,34 +34,22 @@ async def process_market_url(url: str, target_min: float, target_max: float) -> 
             timeout=15
         )
         
-        # Проверка на успешный ответ
         if response.status_code != 200:
             return f"Ошибка: Steam вернул код {response.status_code}"
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Парсинг названия
         title_element = soup.find('div', class_='market_listing_nav')
         title = title_element.text.strip() if title_element else "Неизвестный предмет"
-        
-        # Поиск предложений
         items = soup.select('div.market_listing_row')[:10]
         found_items = []
         
-        for idx, item in enumerate(items, 1):
+        for item in items:
             try:
-                # Извлечение данных
                 price_element = item.select_one('.market_listing_price_with_fee')
                 price = price_element.text.strip() if price_element else "N/A"
-                
-                inspect_link_element = item.select_one('a[href^="steam://"]')
-                if not inspect_link_element:
-                    continue
-                    
-                inspect_link = inspect_link_element['href']
+                inspect_link = item.select_one('a[href^="steam://"]')['href']
                 float_value = get_swapgg_float(inspect_link)
                 
-                # Проверка диапазона float
                 if target_min <= float_value <= target_max:
                     found_items.append({
                         'title': title,
@@ -65,22 +58,15 @@ async def process_market_url(url: str, target_min: float, target_max: float) -> 
                         'url': url
                     })
                 
-                time.sleep(1)  # Анти-флуд
-                
-            except Exception as e:
+                time.sleep(1)
+            except:
                 continue
 
-        # Формирование результата
         if found_items:
-            result = []
-            for item in found_items:
-                result.append(
-                    f"🏷 {item['title']}\n"
-                    f"💰 Цена: {item['price']}\n"
-                    f"🎚 Float: {item['float']:.8f}\n"
-                    f"🔗 Ссылка: {item['url']}"
-                )
-            return '\n\n'.join(result)
+            return '\n\n'.join([
+                f"🏷 {item['title']}\n💰 Цена: {item['price']}\n🎚 Float: {item['float']:.8f}\n🔗 Ссылка: {item['url']}"
+                for item in found_items
+            ])
         return ""
     
     except Exception as e:

@@ -6,13 +6,15 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from keyboard import main_menu, back_menu
-from steam_parser import process_market_url
+from steam_parser import process_market_url, get_steam_cookies
+import json
 
 class Form(StatesGroup):
     waiting_link = State()
     waiting_float = State()
     waiting_delete = State()
-
+    waiting_cookies = State()
+    
 bot = Bot(token="7697546458:AAFslu4K6V2DPG-k0jkw9ThYV-8j2Iy8z7E")
 dp = Dispatcher()
 monitoring_active = False
@@ -27,6 +29,13 @@ def save_skins(skins):
     with open('links.txt', 'w', encoding='utf-8') as f:
         for skin in skins:
             f.write('|'.join(skin) + '\n')
+
+def validate_cookies(data: list) -> bool:
+    required_fields = {'name', 'value', 'domain'}
+    for cookie in data:
+        if not all(field in cookie for field in required_fields):
+            return False
+    return True
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
@@ -141,6 +150,12 @@ async def view_skins(message: Message):
 @dp.message(F.text == 'Начать мониторинг')
 async def start_monitoring(message: Message):
     global monitoring_active
+    
+    # Проверка наличия куки
+    cookies = get_steam_cookies()
+    if not cookies:
+        return await message.answer("❌ Сначала обновите куки через меню!")
+    
     monitoring_active = True
     await message.answer("🔍 Начинаем мониторинг скинов... (проверка каждые 5 минут)")
     asyncio.create_task(check_skins_periodically(message))
@@ -159,6 +174,34 @@ async def check_skins_periodically(message: Message):
 async def back_to_menu(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Главное меню:", reply_markup=main_menu())
+
+@dp.message(F.text == 'Обновить куки')
+async def update_cookies(message: Message, state: FSMContext):
+    await state.set_state(Form.waiting_cookies)
+    await message.answer("Отправьте файл cookies.json с обновленными куками:", reply_markup=back_menu())
+
+@dp.message(Form.waiting_cookies, F.document)
+async def handle_cookies_file(message: Message, state: FSMContext):
+    try:
+        file = await bot.get_file(message.document.file_id)
+        await bot.download_file(file.file_path, destination="cookies.json")
+        
+        # Проверка валидности JSON
+        with open("cookies.json", 'r', encoding='utf-8') as f:
+            cookies_data = json.load(f)  # Теперь json импортирован
+            
+            if not validate_cookies(cookies_data):
+                raise ValueError("Некорректный формат файла")
+        
+        await message.answer("✅ Куки успешно обновлены!", reply_markup=main_menu())
+        
+    except json.JSONDecodeError:  # Обработка ошибок JSON
+        await message.answer("❌ Файл поврежден или не является JSON!", reply_markup=main_menu())
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {str(e)}", reply_markup=main_menu())
+    finally:
+        await state.clear()
+
 
 if __name__ == '__main__':
     dp.run_polling(bot)

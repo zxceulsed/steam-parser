@@ -1,4 +1,5 @@
 import requests
+import json
 
 def clean_inspect_link(link: str) -> str:
     """Очистка инспекционной ссылки"""
