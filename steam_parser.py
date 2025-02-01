@@ -36,11 +36,32 @@ def build_json_url(url: str) -> str:
     )
     return json_url
 
-async def process_market_url(url: str, target_min: float, target_max: float) -> str:
+
+def parse_price(price_str: str) -> float:
+    """Парсит цену из строки с любым форматом валюты"""
+    # Удаляем все нечисловые символы, кроме точек и запятых
+    clean_str = (
+        price_str.strip()
+        .replace(" ", "")      # Убираем пробелы
+        .replace("руб.", "")   # Удаляем обозначение рублей
+        .replace("$", "")      # Удаляем доллары
+        .replace(",", ".")     # Заменяем запятые на точки
+    )
+    
+    # Оставляем только цифры и точку
+    clean_str = "".join([c for c in clean_str if c.isdigit() or c == "."])
+    
     try:
-        # Формируем URL для JSON-эндпоинта (с 100 позиций)
+        return float(clean_str)
+    except ValueError:
+        return 0.0  # Возвращаем 0 в случае ошибки
+
+async def process_market_url(url: str, target_min: float, target_max: float, max_percent: float) -> str:
+    try:
+        # Формируем URL для JSON-запроса
         json_url = build_json_url(url)
         
+        # Отправляем запрос к Steam
         response = requests.get(
             json_url,
             cookies=get_steam_cookies(),
@@ -54,41 +75,77 @@ async def process_market_url(url: str, target_min: float, target_max: float) -> 
         if response.status_code != 200:
             return f"Ошибка: Steam вернул код {response.status_code}"
         
-        # Парсим JSON-ответ и извлекаем HTML с результатами
+        # Парсим результаты
         data = response.json()
         html_results = data.get("results_html", "")
+        
+        # Создаем объект BeautifulSoup в любом случае
         soup = BeautifulSoup(html_results, 'html.parser')
         
+        # Получаем название скина
         title_element = soup.find('div', class_='market_listing_nav')
         title = title_element.text.strip() if title_element else "Неизвестный предмет"
-        # Получаем все элементы (до 100, если их столько есть)
+        
+        # Получаем все элементы списка
         items = soup.select('div.market_listing_row')
+        if not items:
+            return ""
+        
+        # Базовая цена (первый элемент в списке)
+        first_price_str = items[0].select_one('.market_listing_price_with_fee').text.strip()
+        base_price = parse_price(first_price_str)
+        
         found_items = []
         
-        for item in items:
+        # Проверяем все элементы
+        for index, item in enumerate(items):
             try:
+                # Парсим цену
                 price_element = item.select_one('.market_listing_price_with_fee')
-                price = price_element.text.strip() if price_element else "N/A"
+                price_str = price_element.text.strip() if price_element else "N/A"
+                if price_str == "N/A":
+                    continue
+                
+                current_price = parse_price(price_str)
+                if current_price <= 0:
+                    continue
+                
+                # Рассчитываем разницу в цене
+                price_diff_percent = 0.0 if index == 0 else ((current_price - base_price) / base_price) * 100
+                
+                # Проверяем превышение процента (кроме первого элемента)
+                if index != 0 and price_diff_percent > max_percent:
+                    continue
+                
+                # Получаем float
                 inspect_link = item.select_one('a[href^="steam://"]')['href']
                 float_value = get_swapgg_float(inspect_link)
                 
+                # Проверяем диапазон float
                 if target_min <= float_value <= target_max:
                     found_items.append({
                         'title': title,
-                        'price': price,
+                        'price': current_price,
                         'float': float_value,
+                        'price_diff': price_diff_percent,
                         'url': url
                     })
                 
-                time.sleep(1)
+                time.sleep(1)  # Задержка между запросами
+                
             except Exception as inner_e:
-                # Если произошла ошибка при обработке элемента, переходим к следующему
                 print(f"Ошибка обработки элемента: {inner_e}")
                 continue
 
+        # Формируем результат
         if found_items:
             return '\n\n'.join([
-                f"🏷 {item['title']}\n💰 Цена: {item['price']}\n🎚 Float: {item['float']:.8f}\n🔗 Ссылка: {item['url']}"
+                f"🎉 Найден подходящий скин!\n"
+                f"🏷 Название: {item['title']}\n"
+                f"💰 Цена: {item['price']:.2f} руб.\n"
+                f"🎚 Float: {item['float']:.8f}\n"
+                f"📈 Отличие от базовой цены: {item['price_diff']:.1f}%\n"
+                f"🔗 Ссылка: {item['url']}"
                 for item in found_items
             ])
         return ""

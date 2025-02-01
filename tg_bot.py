@@ -12,6 +12,7 @@ import json
 class Form(StatesGroup):
     waiting_link = State()
     waiting_float = State()
+    waiting_percent = State()
     waiting_delete = State()
     waiting_cookies = State()
     
@@ -79,21 +80,39 @@ async def process_float(message: Message, state: FSMContext):
         if min_float > max_float:
             return await message.answer("❌ Минимальное значение должно быть меньше максимального!")
         
+        await state.update_data(min_float=min_float, max_float=max_float)
+        await state.set_state(Form.waiting_percent)
+        await message.answer(
+            "Введите максимальный допустимый процент превышения цены (например 20):",
+            reply_markup=back_menu()
+        )
+        
+    except ValueError:
+        await message.answer("❌ Неверный формат диапазона! Используйте пример: 0.00-0.02")
+
+@dp.message(Form.waiting_percent)
+async def process_percent(message: Message, state: FSMContext):
+    try:
+        percent = float(message.text)
+        if percent <= 0:
+            return await message.answer("❌ Процент должен быть положительным числом!")
+        
         data = await state.get_data()
         skins = load_skins()
-        skins.append([data['link'], str(min_float), str(max_float)])
+        skins.append([data['link'], str(data['min_float']), str(data['max_float']), str(percent)])
         save_skins(skins)
         
         await message.answer(
             f"✅ Скин успешно добавлен!\n"
             f"Ссылка: {data['link']}\n"
-            f"Диапазон float: {min_float}-{max_float}",
+            f"Диапазон float: {data['min_float']}-{data['max_float']}\n"
+            f"Макс. превышение цены: {percent}%",
             reply_markup=main_menu()
         )
         await state.clear()
         
     except ValueError:
-        await message.answer("❌ Неверный формат диапазона! Используйте пример: 0.00-0.02")
+        await message.answer("❌ Введите корректное числовое значение!")
 
 @dp.message(F.text == 'Удалить скин')
 async def delete_skin(message: Message, state: FSMContext):
@@ -102,8 +121,8 @@ async def delete_skin(message: Message, state: FSMContext):
         return await message.answer("📂 Список скинов пуст!")
     
     response = ["🗑 Список скинов для удаления:"]
-    for i, (link, min_float, max_float) in enumerate(skins, 1):
-        response.append(f"{i}. {link}\nДиапазон: {min_float}-{max_float}")
+    for i, (link, min_float, max_float, percent) in enumerate(skins, 1):
+        response.append(f"{i}. {link}\nДиапазон: {min_float}-{max_float}\nПроцент: {percent}%")
     
     await state.set_state(Form.waiting_delete)
     await message.answer('\n'.join(response) + "\n\nВведите номер скина для удаления:", reply_markup=back_menu())
@@ -142,8 +161,8 @@ async def view_skins(message: Message):
         return await message.answer("📂 Список скинов пуст")
     
     response = ["📋 Список отслеживаемых скинов:"]
-    for i, (link, min_float, max_float) in enumerate(skins, 1):
-        response.append(f"{i}. {link}\nДиапазон float: {min_float}-{max_float}")
+    for i, (link, min_float, max_float, percent) in enumerate(skins, 1):
+        response.append(f"{i}. {link}\nДиапазон float: {min_float}-{max_float}\nМакс. процент: {percent}%")
     
     await message.answer('\n'.join(response))
 
@@ -164,8 +183,15 @@ async def check_skins_periodically(message: Message):
     global monitoring_active
     while monitoring_active:
         skins = load_skins()
-        for url, min_float, max_float in skins:
-            result = await process_market_url(url, float(min_float), float(max_float))
+        for skin_entry in skins:
+            # Распаковываем 4 значения вместо 3
+            url, min_float, max_float, max_percent = skin_entry
+            result = await process_market_url(
+                url, 
+                float(min_float), 
+                float(max_float),
+                float(max_percent)  # Добавляем процент в вызов
+            )
             if result:
                 await message.answer(f"🎉 Найден подходящий скин!\n{result}")
         await asyncio.sleep(300)
