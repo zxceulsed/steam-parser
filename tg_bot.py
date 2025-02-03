@@ -24,12 +24,13 @@ def load_skins():
     if not os.path.exists('links.txt'):
         return []
     with open('links.txt', 'r', encoding='utf-8') as f:
-        return [line.strip().split('|') for line in f.readlines()]
+        return [line.strip().split('~|~') for line in f.readlines()]
+
 
 def save_skins(skins):
     with open('links.txt', 'w', encoding='utf-8') as f:
         for skin in skins:
-            f.write('|'.join(skin) + '\n')
+            f.write('~|~'.join(skin) + '\n')
 
 def validate_cookies(data: list) -> bool:
     required_fields = {'name', 'value', 'domain'}
