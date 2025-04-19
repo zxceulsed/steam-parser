@@ -16,7 +16,7 @@ class Form(StatesGroup):
     waiting_delete = State()
     waiting_cookies = State()
     
-bot = Bot(token="7697546458:AAFslu4K6V2DPG-k0jkw9ThYV-8j2Iy8z7E")
+bot = Bot(token="5850044952:AAG8m316opUqrEDrbmRhOrg4kieHUZ-WwjE")
 dp = Dispatcher()
 monitoring_active = False
 
