@@ -1,4 +1,13 @@
 cookies.json
 links.txt
-__pycache__/
-myenv/
+__pycache__/       
+*.py[cod]
+*$py.class
+myenv/               
+config.py           
+*.sqlite3
+*.db
+*.log
+.vscode/
+.idea/
+.env

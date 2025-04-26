@@ -1,7 +1,8 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-import json
 
-def main_menu():
+__all__ = ["main_menu", "back_menu"]
+
+def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text='Добавить скин'), KeyboardButton(text='Удалить скин')],
@@ -11,7 +12,7 @@ def main_menu():
         resize_keyboard=True
     )
 
-def back_menu():
+def back_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text='Назад в меню')]],
         resize_keyboard=True
